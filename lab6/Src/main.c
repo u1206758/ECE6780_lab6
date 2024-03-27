@@ -66,13 +66,136 @@ void SystemClock_Config(void);
 
 /* USER CODE END 0 */
 
+//Initialize all four LEDs
+void init_leds(void)
+{
+  //Enable GPIOC on RCC
+  RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
+
+  //Initialize red LED, PC6
+  GPIOC->MODER |= GPIO_MODER_MODER6_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_6; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR6_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR6_0 | GPIO_PUPDR_PUPDR6_1); //No pull up or down
+
+  //Initialize blue LED, PC7
+  GPIOC->MODER |= GPIO_MODER_MODER7_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_7; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR7_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR7_0 | GPIO_PUPDR_PUPDR7_1); //No pull up or down
+
+  //Initialize orange LED, PC8
+  GPIOC->MODER |= GPIO_MODER_MODER8_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_8; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR8_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR8_0 | GPIO_PUPDR_PUPDR8_1); //No pull up or down
+
+  //Initialize green LED, PC9
+  GPIOC->MODER |= GPIO_MODER_MODER9_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_9; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR9_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR9_0 | GPIO_PUPDR_PUPDR9_1); //No pull up or down
+
+  //Set all LEDs off
+  GPIOC->BSRR |= GPIO_BSRR_BR_6;
+  GPIOC->BSRR |= GPIO_BSRR_BR_7;
+  GPIOC->BSRR |= GPIO_BSRR_BR_8;
+  GPIOC->BSRR |= GPIO_BSRR_BR_9;
+}
+
 int main(void)
 {
   HAL_Init(); // Reset of all peripherals, init the Flash and Systick
   SystemClock_Config(); //Configure the system clock
 
+  init_leds();
+
+  RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+  //Select PA1 as ADC channel 1 input
+  //Configure pin to analog, no pull up/down
+  GPIOA->MODER |= (GPIO_MODER_MODER1_0 | GPIO_MODER_MODER1_1);
+  GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1_0 | GPIO_PUPDR_PUPDR1_1);
+  //Connect output (center pin) of potentiometer to input pin, other two to 3v and gnd
+  //Enable ADC1 in RCC
+  RCC->APB2ENR |= RCC_APB2ENR_ADCEN;
+  //Configure ADC to 8-bit resolution, continuous conversion, hardware triggers disabled
+  ADC1->CFGR1 |= ADC_CFGR1_RES_1;
+  ADC1->CFGR1 |= ADC_CFGR1_CONT;
+  //Select/enable input pin's channel for ADC conversion
+  ADC1->CHSELR |= ADC_CHSELR_CHSEL1;
+  //Perform self calibration, enable, and start ADC
+  //Set ADCAL to 1, ADEN must be 0
+  ADC1->CR &= ~ADC_CR_ADEN;
+  ADC1->CR |= ADC_CR_ADCAL;
+  //Wait until ADCAL is reset
+  while (ADC1->CR & ADC_CR_ADCAL) {}
+  //Clear ADRDY
+  ADC1->ISR &= ~ADC_ISR_ADRDY;
+  //Set ADEN to 1 to enable
+  ADC1->CR |= ADC_CR_ADEN;
+  //Wait until ADRDY is set
+  while (!(ADC1->ISR & ADC_ISR_ADRDY)) {}
+  //Set ADSTART to start
+  ADC1->CR |= ADC_CR_ADSTART;
+
+  //Select PA4 DAC_OUT_1
+  //Configure pin to analog, no pull up/down
+  GPIOA->MODER |= (GPIO_MODER_MODER4_0 | GPIO_MODER_MODER4_1);
+  GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR4_0 | GPIO_PUPDR_PUPDR4_1);
+  //Connect oscilloscope/logic analyzer to pin
+  RCC->APB1ENR |= RCC_APB1ENR_DACEN;
+  //Set DAC to software trigger mode
+  DAC1->CR &= ~DAC_CR_TEN1;
+  DAC1->CR |= (DAC_CR_TSEL1_0 | DAC_CR_TSEL1_1 | DAC_CR_TSEL1_2);
+  //Enable DAC channel
+  DAC1->CR |= DAC_CR_EN1;
+  //Copy one wave table, not square wave
+  //In main loop, index array to write value into appropriate DAC data register
+  //Use a 1ms delay between updating the DAC to new values
+  //Submit capture to postlab
+
+  // Sine Wave: 8-bit, 32 samples/cycle
+  const uint8_t sine_table[32] = {127,151,175,197,216,232,244,251,254,251,244,
+  232,216,197,175,151,127,102,78,56,37,21,9,2,0,2,9,21,37,56,78,102};
+
+  uint8_t index = 0;
+
+  uint16_t pot_val;
+
   while (1)
   {
+    //Read ADC data reg and assign each LED to a threshold
+    pot_val = ADC1->DR;
+
+    if (pot_val > 50)
+      GPIOC->ODR |= GPIO_ODR_6;
+    else
+      GPIOC->ODR &= ~GPIO_ODR_6;
+
+    if (pot_val > 100)
+      GPIOC->ODR |= GPIO_ODR_9;
+    else
+      GPIOC->ODR &= ~GPIO_ODR_9;
+
+    if (pot_val > 150)
+      GPIOC->ODR |= GPIO_ODR_7;
+    else
+      GPIOC->ODR &= ~GPIO_ODR_7;
+
+    if (pot_val > 200)
+      GPIOC->ODR |= GPIO_ODR_8;
+    else
+      GPIOC->ODR &= ~GPIO_ODR_8;
+
+    //Output sine wave on DAC
+    HAL_Delay(1);
+    if (index == 31)
+      index = 0;
+    else
+      index++;
+
+    DAC1->DHR8R1 = sine_table[index];
+
   }
 
 }
